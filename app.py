@@ -26,7 +26,6 @@ AREA_COLORS = {
     "Infraestructura":"#5B21B6",
     "Seguridad":      "#9F1239",
     "SEO / Web":      "#134E4A",
-    "Externo":          "#4A5568",
     "Otros":          "#4A5568",
 }
 
