@@ -16,7 +16,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive",
 ]
 
-AREAS   = ["ERP", "IA", "CRM", "Infraestructura", "Seguridad", "SEO / Web", "Extra"]
+AREAS   = ["ERP", "IA", "CRM", "Infraestructura", "Seguridad", "SEO / Web", "Externo", "Otros"]
 ESTADOS = ["Pendiente", "En curso", "Resuelto"]
 
 AREA_COLORS = {
@@ -26,6 +26,7 @@ AREA_COLORS = {
     "Infraestructura":"#5B21B6",
     "Seguridad":      "#9F1239",
     "SEO / Web":      "#134E4A",
+    "Externo":      "#134E4A",
     "Otros":          "#4A5568",
 }
 
