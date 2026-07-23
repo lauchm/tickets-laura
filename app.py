@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import date
+from datetime import date, datetime
 import gspread
 from google.oauth2.service_account import Credentials
 import json
@@ -16,7 +16,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive",
 ]
 
-AREAS   = ["ERP", "IA", "CRM", "Infraestructura", "Seguridad", "SEO / Web", "Externo", "Formación", "Otros"]
+AREAS   = ["ERP", "IA", "CRM", "Infraestructura", "Seguridad", "SEO / Web", "Extra"]
 ESTADOS = ["Pendiente", "En curso", "Resuelto"]
 
 AREA_COLORS = {
@@ -26,9 +26,7 @@ AREA_COLORS = {
     "Infraestructura":"#5B21B6",
     "Seguridad":      "#9F1239",
     "SEO / Web":      "#134E4A",
-    "Externo":      "#134E4A",
-    "Formación":      "#134E4A",
-    "Otros":          "#4A5568",
+    "Extra":          "#4A5568",
 }
 
 ESTADO_EMOJI = {"Pendiente": "⏳", "En curso": "🔄", "Resuelto": "✅"}
@@ -60,6 +58,7 @@ st.markdown(f"""
   .ticket-date {{ font-size:11px; color:#8892A4; }}
   .ticket-desc {{ font-size:12px; color:#4A5568; line-height:1.5; margin-top:4px; }}
   .ruta-box {{ background:#F7F8FA; border:1px solid #D8DCE6; border-radius:5px; padding:4px 8px; font-size:11px; font-family:monospace; color:{NAVY}; margin-top:6px; word-break:break-all; }}
+  .notas-box {{ background:#FFFBEB; border:1px solid #FDE68A; border-radius:5px; padding:6px 8px; font-size:12px; color:#78350F; margin-top:6px; line-height:1.5; }}
   .col-header-pend {{ border-top:3px solid #FBBF24; border-radius:8px 8px 0 0; padding:8px 12px; background:#fff; border:1px solid #EEF0F4; font-size:12px; font-weight:700; color:#92400E; text-transform:uppercase; letter-spacing:0.04em; }}
   .col-header-curso {{ border-top:3px solid #3B82F6; border-radius:8px 8px 0 0; padding:8px 12px; background:#fff; border:1px solid #EEF0F4; font-size:12px; font-weight:700; color:#1E3A8A; text-transform:uppercase; letter-spacing:0.04em; }}
   .col-header-done  {{ border-top:3px solid #10B981; border-radius:8px 8px 0 0; padding:8px 12px; background:#fff; border:1px solid #EEF0F4; font-size:12px; font-weight:700; color:#065F46; text-transform:uppercase; letter-spacing:0.04em; }}
@@ -79,8 +78,12 @@ def get_sheet():
     try:
         ws = sh.worksheet("Tickets")
     except gspread.WorksheetNotFound:
-        ws = sh.add_worksheet("Tickets", rows=1000, cols=7)
-        ws.append_row(["ID", "Fecha", "Título", "Área", "Descripción", "Ruta", "Estado"])
+        ws = sh.add_worksheet("Tickets", rows=1000, cols=8)
+        ws.append_row(["ID", "Fecha", "Título", "Área", "Descripción", "Ruta", "Estado", "Notas"])
+    # Añadir columna Notas si no existe
+    headers = ws.row_values(1)
+    if len(headers) < 8 or headers[7] != "Notas":
+        ws.update_cell(1, 8, "Notas")
     return ws
 
 
@@ -88,14 +91,17 @@ def load_tickets():
     ws = get_sheet()
     data = ws.get_all_records()
     if not data:
-        return pd.DataFrame(columns=["ID","Fecha","Título","Área","Descripción","Ruta","Estado"])
-    return pd.DataFrame(data)
+        return pd.DataFrame(columns=["ID","Fecha","Título","Área","Descripción","Ruta","Estado","Notas"])
+    df = pd.DataFrame(data)
+    if "Notas" not in df.columns:
+        df["Notas"] = ""
+    return df
 
 
 def add_ticket(titulo, area, descripcion, ruta, estado, fecha):
     ws = get_sheet()
     ticket_id = int(pd.Timestamp.now().timestamp() * 1000)
-    ws.append_row([ticket_id, str(fecha), titulo, area, descripcion, ruta, estado])
+    ws.append_row([ticket_id, str(fecha), titulo, area, descripcion, ruta, estado, ""])
     st.cache_resource.clear()
 
 
@@ -104,6 +110,19 @@ def update_estado(ticket_id, nuevo_estado):
     cell = ws.find(str(ticket_id))
     if cell:
         ws.update_cell(cell.row, 7, nuevo_estado)
+    st.cache_resource.clear()
+
+
+def update_ticket(ticket_id, titulo, area, descripcion, ruta, estado, notas):
+    ws = get_sheet()
+    cell = ws.find(str(ticket_id))
+    if cell:
+        ws.update_cell(cell.row, 3, titulo)
+        ws.update_cell(cell.row, 4, area)
+        ws.update_cell(cell.row, 5, descripcion)
+        ws.update_cell(cell.row, 6, ruta)
+        ws.update_cell(cell.row, 7, estado)
+        ws.update_cell(cell.row, 8, notas)
     st.cache_resource.clear()
 
 
@@ -149,7 +168,11 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# FORMULARIO
+# MODAL EDICIÓN en session state
+if "editing_id" not in st.session_state:
+    st.session_state.editing_id = None
+
+# FORMULARIO NUEVO TICKET
 with st.expander("➕  Nuevo ticket", expanded=False):
     with st.form("nuevo_ticket", clear_on_submit=True):
         col1, col2 = st.columns([3, 1])
@@ -173,6 +196,51 @@ with st.expander("➕  Nuevo ticket", expanded=False):
                 st.success("✅ Ticket creado.")
                 st.rerun()
 
+# FORMULARIO EDICIÓN
+if st.session_state.editing_id is not None:
+    tid = st.session_state.editing_id
+    row = df[df["ID"] == tid]
+    if not row.empty:
+        row = row.iloc[0]
+        st.markdown("---")
+        st.markdown(f"### ✏️ Editando ticket: {row['Título']}")
+        with st.form("editar_ticket"):
+            ec1, ec2 = st.columns([3, 1])
+            with ec1:
+                e_titulo = st.text_input("Título *", value=row["Título"])
+            with ec2:
+                try:
+                    e_fecha = st.date_input("Fecha", value=datetime.strptime(str(row["Fecha"]), "%Y-%m-%d").date())
+                except:
+                    e_fecha = date.today()
+            ec3, ec4 = st.columns([1, 1])
+            with ec3:
+                e_area = st.selectbox("Área", AREAS, index=AREAS.index(row["Área"]) if row["Área"] in AREAS else 0)
+            with ec4:
+                e_estado = st.selectbox("Estado", ESTADOS, index=ESTADOS.index(row["Estado"]) if row["Estado"] in ESTADOS else 0)
+            e_desc = st.text_area("Descripción", value=row.get("Descripción", ""), height=100)
+            e_ruta = st.text_input("📁 Ruta del documento", value=row.get("Ruta", ""))
+            e_notas = st.text_area(
+                "📝 Notas adicionales / documentación posterior",
+                value=row.get("Notas", ""),
+                height=100,
+                placeholder="Añade aquí información extra, resultados finales, seguimiento posterior..."
+            )
+            bc1, bc2 = st.columns([1, 1])
+            with bc1:
+                guardar = st.form_submit_button("💾 Guardar cambios", use_container_width=True)
+            with bc2:
+                cancelar = st.form_submit_button("✕ Cancelar", use_container_width=True)
+
+            if guardar:
+                update_ticket(tid, e_titulo.strip(), e_area, e_desc.strip(), e_ruta.strip(), e_estado, e_notas.strip())
+                st.session_state.editing_id = None
+                st.success("✅ Ticket actualizado.")
+                st.rerun()
+            if cancelar:
+                st.session_state.editing_id = None
+                st.rerun()
+
 # FILTROS
 if not df.empty:
     st.markdown("---")
@@ -188,7 +256,8 @@ if not df.empty:
     if f_estado: df_fil = df_fil[df_fil["Estado"].isin(f_estado)]
     if f_buscar:
         mask = (df_fil["Título"].str.contains(f_buscar, case=False, na=False) |
-                df_fil["Descripción"].str.contains(f_buscar, case=False, na=False))
+                df_fil["Descripción"].str.contains(f_buscar, case=False, na=False) |
+                df_fil["Notas"].str.contains(f_buscar, case=False, na=False))
         df_fil = df_fil[mask]
 else:
     df_fil = df.copy()
@@ -216,6 +285,8 @@ def render_column(col, estado_label, header_class, df_data):
                 color = AREA_COLORS.get(row["Área"], "#4A5568")
                 ruta_html = f'<div class="ruta-box">📁 {row["Ruta"]}</div>' if row.get("Ruta") else ""
                 desc_html = f'<div class="ticket-desc">{row["Descripción"]}</div>' if row.get("Descripción") else ""
+                notas_html = f'<div class="notas-box">📝 {row["Notas"]}</div>' if row.get("Notas") else ""
+
                 st.markdown(f"""
                 <div class="ticket-card">
                   <div class="ticket-title">{row["Título"]}</div>
@@ -223,26 +294,32 @@ def render_column(col, estado_label, header_class, df_data):
                     <span class="area-badge" style="background:{color};">{row["Área"]}</span>
                     <span class="ticket-date">{row.get("Fecha","")}</span>
                   </div>
-                  {desc_html}{ruta_html}
+                  {desc_html}{ruta_html}{notas_html}
                 </div>""", unsafe_allow_html=True)
 
-                btns = st.columns(3)
+                btns = st.columns(4)
+                # Botón editar
+                with btns[0]:
+                    if st.button("✏️", key=f"edit_{tid}", help="Editar ticket"):
+                        st.session_state.editing_id = tid
+                        st.rerun()
+                # Botones de estado
                 if estado_label == "Pendiente":
-                    with btns[0]:
+                    with btns[1]:
                         if st.button("▶ Iniciar", key=f"ini_{tid}"):
                             update_estado(tid, "En curso"); st.rerun()
                 elif estado_label == "En curso":
-                    with btns[0]:
+                    with btns[1]:
                         if st.button("✓ Resolver", key=f"res_{tid}"):
                             update_estado(tid, "Resuelto"); st.rerun()
-                    with btns[1]:
+                    with btns[2]:
                         if st.button("← Pend.", key=f"pen_{tid}"):
                             update_estado(tid, "Pendiente"); st.rerun()
                 elif estado_label == "Resuelto":
-                    with btns[0]:
+                    with btns[1]:
                         if st.button("↩ Reabrir", key=f"rea_{tid}"):
                             update_estado(tid, "En curso"); st.rerun()
-                with btns[2]:
+                with btns[3]:
                     if st.button("🗑", key=f"del_{tid}"):
                         delete_ticket(tid); st.rerun()
 
