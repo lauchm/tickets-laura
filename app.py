@@ -75,13 +75,14 @@ st.markdown(f"""
 
 # ── GOOGLE SHEETS ─────────────────────────────────────────────────────────────
 @st.cache_resource
-def get_client():
+def get_spreadsheet():
     creds_dict = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
     creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-    return gspread.authorize(creds)
+    client = gspread.authorize(creds)
+    return client.open(st.secrets["SHEET_NAME"])
 
 def get_sheet_tickets():
-    sh = get_client().open(st.secrets["SHEET_NAME"])
+    sh = get_spreadsheet()
     try:
         ws = sh.worksheet("Tickets")
     except gspread.WorksheetNotFound:
@@ -93,7 +94,7 @@ def get_sheet_tickets():
     return ws
 
 def get_sheet_recurrentes():
-    sh = get_client().open(st.secrets["SHEET_NAME"])
+    sh = get_spreadsheet()
     try:
         ws = sh.worksheet("Recurrentes")
     except gspread.WorksheetNotFound:
@@ -102,7 +103,7 @@ def get_sheet_recurrentes():
     return ws
 
 def get_sheet_historial():
-    sh = get_client().open(st.secrets["SHEET_NAME"])
+    sh = get_spreadsheet()
     try:
         ws = sh.worksheet("Historial")
     except gspread.WorksheetNotFound:
@@ -110,6 +111,7 @@ def get_sheet_historial():
         ws.append_row(["ID","Fecha","Tarea","Área"])
     return ws
 
+@st.cache_data(ttl=30)
 def load_tickets():
     ws = get_sheet_tickets()
     data = ws.get_all_records()
@@ -120,6 +122,7 @@ def load_tickets():
         df["Notas"] = ""
     return df
 
+@st.cache_data(ttl=30)
 def load_recurrentes():
     ws = get_sheet_recurrentes()
     data = ws.get_all_records()
@@ -127,6 +130,7 @@ def load_recurrentes():
         return pd.DataFrame(columns=["ID","Nombre","Área"])
     return pd.DataFrame(data)
 
+@st.cache_data(ttl=30)
 def load_historial():
     ws = get_sheet_historial()
     data = ws.get_all_records()
@@ -138,14 +142,14 @@ def add_ticket(titulo, area, descripcion, ruta, estado, fecha):
     ws = get_sheet_tickets()
     tid = int(pd.Timestamp.now().timestamp() * 1000)
     ws.append_row([tid, str(fecha), titulo, area, descripcion, ruta, estado, ""])
-    st.cache_resource.clear()
+    st.cache_data.clear()
 
 def update_estado(ticket_id, nuevo_estado):
     ws = get_sheet_tickets()
     cell = ws.find(str(ticket_id))
     if cell:
         ws.update_cell(cell.row, 7, nuevo_estado)
-    st.cache_resource.clear()
+    st.cache_data.clear()
 
 def update_ticket(ticket_id, titulo, area, descripcion, ruta, estado, notas):
     ws = get_sheet_tickets()
@@ -157,33 +161,33 @@ def update_ticket(ticket_id, titulo, area, descripcion, ruta, estado, notas):
         ws.update_cell(cell.row, 6, ruta)
         ws.update_cell(cell.row, 7, estado)
         ws.update_cell(cell.row, 8, notas)
-    st.cache_resource.clear()
+    st.cache_data.clear()
 
 def delete_ticket(ticket_id):
     ws = get_sheet_tickets()
     cell = ws.find(str(ticket_id))
     if cell:
         ws.delete_rows(cell.row)
-    st.cache_resource.clear()
+    st.cache_data.clear()
 
 def add_recurrente(nombre, area):
     ws = get_sheet_recurrentes()
     rid = int(pd.Timestamp.now().timestamp() * 1000)
     ws.append_row([rid, nombre, area])
-    st.cache_resource.clear()
+    st.cache_data.clear()
 
 def delete_recurrente(rid):
     ws = get_sheet_recurrentes()
     cell = ws.find(str(rid))
     if cell:
         ws.delete_rows(cell.row)
-    st.cache_resource.clear()
+    st.cache_data.clear()
 
 def registrar_hecha(nombre, area):
     ws = get_sheet_historial()
     hid = int(pd.Timestamp.now().timestamp() * 1000)
     ws.append_row([hid, str(date.today()), nombre, area])
-    st.cache_resource.clear()
+    st.cache_data.clear()
 
 # ── HEADER ────────────────────────────────────────────────────────────────────
 st.markdown(f"""
