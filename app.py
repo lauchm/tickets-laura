@@ -67,6 +67,8 @@ st.markdown(f"""
   .col-header-pend{{border-top:3px solid #FBBF24;border-radius:8px 8px 0 0;padding:8px 12px;background:#fff;border:1px solid #EEF0F4;font-size:12px;font-weight:700;color:#92400E;text-transform:uppercase;letter-spacing:0.04em;}}
   .col-header-curso{{border-top:3px solid #3B82F6;border-radius:8px 8px 0 0;padding:8px 12px;background:#fff;border:1px solid #EEF0F4;font-size:12px;font-weight:700;color:#1E3A8A;text-transform:uppercase;letter-spacing:0.04em;}}
   .col-header-done{{border-top:3px solid #10B981;border-radius:8px 8px 0 0;padding:8px 12px;background:#fff;border:1px solid #EEF0F4;font-size:12px;font-weight:700;color:#065F46;text-transform:uppercase;letter-spacing:0.04em;}}
+  .archive-card{{background:#fff;border:1.5px solid #D8DCE6;border-radius:8px;padding:0.9rem 1.1rem;margin-bottom:10px;border-left:4px solid #10B981;}}
+  .archive-card:hover{{border-color:#10B981;box-shadow:0 2px 8px rgba(0,0,0,0.06);}}
   .stButton>button{{background:{NAVY} !important;color:#fff !important;border:none !important;border-radius:6px !important;font-weight:600 !important;font-size:13px !important;}}
   .stButton>button:hover{{background:#2A4580 !important;}}
   #MainMenu,footer,header{{visibility:hidden;}}
@@ -222,10 +224,10 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ── PESTAÑAS ──────────────────────────────────────────────────────────────────
-tab1, tab2 = st.tabs(["🗂️ Tickets", "🔁 Tareas recurrentes"])
+tab1, tab2, tab3 = st.tabs(["🗂️ Tickets activos", "📦 Archivo", "🔁 Tareas recurrentes"])
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PESTAÑA 1: TICKETS
+# PESTAÑA 1: TICKETS ACTIVOS (solo Pendiente + En curso)
 # ══════════════════════════════════════════════════════════════════════════════
 with tab1:
 
@@ -295,25 +297,25 @@ with tab1:
                     st.session_state.editing_id = None
                     st.rerun()
 
-    if not df.empty:
+    # Filtros — solo para estados activos
+    df_activos = df[df["Estado"].isin(["Pendiente","En curso"])].copy() if not df.empty else df.copy()
+
+    if not df_activos.empty:
         st.markdown("---")
         fc1, fc2, fc3 = st.columns(3)
-        with fc1: f_area   = st.multiselect("Filtrar por área", AREAS)
-        with fc2: f_estado = st.multiselect("Filtrar por estado", ESTADOS)
-        with fc3: f_buscar = st.text_input("🔍 Buscar")
-        df_fil = df.copy()
+        with fc1: f_area   = st.multiselect("Filtrar por área", AREAS, key="fil_area_tab1")
+        with fc2: f_buscar = st.text_input("🔍 Buscar", key="buscar_tab1")
+        df_fil = df_activos.copy()
         if f_area:   df_fil = df_fil[df_fil["Área"].isin(f_area)]
-        if f_estado: df_fil = df_fil[df_fil["Estado"].isin(f_estado)]
         if f_buscar:
             mask = (df_fil["Título"].str.contains(f_buscar,case=False,na=False)|
-                    df_fil["Descripción"].str.contains(f_buscar,case=False,na=False)|
-                    df_fil["Notas"].str.contains(f_buscar,case=False,na=False))
+                    df_fil["Descripción"].str.contains(f_buscar,case=False,na=False))
             df_fil = df_fil[mask]
     else:
-        df_fil = df.copy()
+        df_fil = df_activos.copy()
 
     st.markdown("---")
-    col_pend, col_curso, col_done = st.columns(3)
+    col_pend, col_curso = st.columns(2)
 
     def render_column(col, estado_label, header_class, df_data):
         with col:
@@ -357,33 +359,118 @@ with tab1:
                         with btns[2]:
                             if st.button("← Pend.", key=f"pen_{tid}"):
                                 update_estado(tid,"Pendiente"); st.rerun()
-                    elif estado_label=="Resuelto":
-                        with btns[1]:
-                            if st.button("↩ Reabrir", key=f"rea_{tid}"):
-                                update_estado(tid,"En curso"); st.rerun()
                     with btns[3]:
                         if st.button("🗑", key=f"del_{tid}"):
                             delete_ticket(tid); st.rerun()
 
-    render_column(col_pend,  "Pendiente","col-header-pend",  df_fil)
-    render_column(col_curso, "En curso", "col-header-curso", df_fil)
-    render_column(col_done,  "Resuelto", "col-header-done",  df_fil)
+    render_column(col_pend,  "Pendiente", "col-header-pend",  df_fil)
+    render_column(col_curso, "En curso",  "col-header-curso", df_fil)
 
     if not df.empty:
         st.markdown("---")
         ec1, ec2 = st.columns([3,1])
         with ec1:
-            st.caption(f"📋 {n_total} tickets · {n_done} resueltos")
+            st.caption(f"📋 {n_total} tickets en total · {n_done} resueltos en 📦 Archivo")
         with ec2:
             csv = df.to_csv(index=False).encode("utf-8")
-            st.download_button("↓ Exportar CSV", data=csv,
+            st.download_button("↓ Exportar todo CSV", data=csv,
                                file_name="tickets_laura_cohimar_2026.csv",
                                mime="text/csv", use_container_width=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PESTAÑA 2: RECURRENTES
+# PESTAÑA 2: ARCHIVO (todos los resueltos)
 # ══════════════════════════════════════════════════════════════════════════════
 with tab2:
+    df_resueltos = df[df["Estado"]=="Resuelto"].copy() if not df.empty else pd.DataFrame()
+
+    # Cabecera del archivo
+    st.markdown(f"""
+    <div style="background:linear-gradient(90deg,#065F46,#047857);border-radius:8px;padding:1rem 1.2rem;margin-bottom:1.2rem;display:flex;align-items:center;justify-content:space-between;">
+      <div>
+        <span style="color:#fff;font-size:16px;font-weight:700;">📦 Archivo de tickets resueltos</span>
+        <div style="color:rgba(255,255,255,0.65);font-size:12px;margin-top:2px;">Historial completo de incidencias y tareas completadas</div>
+      </div>
+      <div style="background:rgba(255,255,255,0.15);border-radius:20px;padding:4px 14px;color:#fff;font-size:20px;font-weight:800;">{n_done}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if df_resueltos.empty:
+        st.info("Aún no hay tickets resueltos. Cuando resuelvas un ticket desde la pestaña 🗂️ Tickets, aparecerá aquí.")
+    else:
+        # Filtros del archivo
+        af1, af2, af3 = st.columns(3)
+        with af1:
+            a_area = st.multiselect("Filtrar por área", AREAS, key="arch_area")
+        with af2:
+            a_buscar = st.text_input("🔍 Buscar en resueltos", key="arch_buscar")
+        with af3:
+            # Ordenar por fecha
+            orden = st.selectbox("Ordenar", ["Más reciente primero", "Más antiguo primero"], key="arch_orden")
+
+        df_arch = df_resueltos.copy()
+        if a_area:
+            df_arch = df_arch[df_arch["Área"].isin(a_area)]
+        if a_buscar:
+            mask = (df_arch["Título"].str.contains(a_buscar, case=False, na=False) |
+                    df_arch["Descripción"].str.contains(a_buscar, case=False, na=False) |
+                    df_arch["Notas"].str.contains(a_buscar, case=False, na=False))
+            df_arch = df_arch[mask]
+
+        # Ordenar
+        try:
+            df_arch["Fecha_dt"] = pd.to_datetime(df_arch["Fecha"], errors="coerce")
+            ascending = (orden == "Más antiguo primero")
+            df_arch = df_arch.sort_values("Fecha_dt", ascending=ascending)
+        except:
+            pass
+
+        # Contador resultados + export
+        rc1, rc2 = st.columns([3,1])
+        with rc1:
+            st.caption(f"✅ {len(df_arch)} tickets resueltos{' (filtrado)' if a_area or a_buscar else ''}")
+        with rc2:
+            csv_res = df_arch.drop(columns=["Fecha_dt"], errors="ignore").to_csv(index=False).encode("utf-8")
+            st.download_button("↓ Exportar resueltos", data=csv_res,
+                               file_name="archivo_resueltos_cohimar_2026.csv",
+                               mime="text/csv", use_container_width=True)
+
+        st.markdown("---")
+
+        # Renderizar cards de resueltos
+        for _, row in df_arch.iterrows():
+            tid   = row["ID"]
+            color = AREA_COLORS.get(row["Área"], "#4A5568")
+            ruta_html  = f'<div class="ruta-box">📁 {row["Ruta"]}</div>' if row.get("Ruta") else ""
+            desc_html  = f'<div class="ticket-desc">{row["Descripción"]}</div>' if row.get("Descripción") else ""
+            notas_html = f'<div class="notas-box">📝 {row["Notas"]}</div>' if row.get("Notas") else ""
+            st.markdown(f"""
+            <div class="archive-card">
+              <div class="ticket-title">✅ {row["Título"]}</div>
+              <div class="ticket-meta">
+                <span class="area-badge" style="background:{color};">{row["Área"]}</span>
+                <span class="ticket-date">{row.get("Fecha","")}</span>
+              </div>
+              {desc_html}{ruta_html}{notas_html}
+            </div>""", unsafe_allow_html=True)
+            # Botones: editar y reabrir
+            btns = st.columns([0.5, 1.2, 1.2, 5])
+            with btns[0]:
+                if st.button("✏️", key=f"arch_edit_{tid}", help="Editar"):
+                    st.session_state.editing_id = tid
+                    st.rerun()
+            with btns[1]:
+                if st.button("↩ Reabrir", key=f"arch_rea_{tid}", help="Mover a En curso"):
+                    update_estado(tid, "En curso")
+                    st.rerun()
+            with btns[2]:
+                if st.button("🗑 Eliminar", key=f"arch_del_{tid}"):
+                    delete_ticket(tid)
+                    st.rerun()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PESTAÑA 3: RECURRENTES
+# ══════════════════════════════════════════════════════════════════════════════
+with tab3:
     try:
         df_rec  = load_recurrentes()
         df_hist = load_historial()
